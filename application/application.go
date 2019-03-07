@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/throttled/throttled"
 	"github.com/throttled/throttled/store/memstore"
+	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
@@ -34,6 +35,18 @@ func (app *Application) MiddlewareStruct() (*interpose.Middleware, error) {
 }
 
 
+func singleJoiningSlash(a, b string) string {
+    aslash := strings.HasSuffix(a, "/")
+    bslash := strings.HasPrefix(b, "/")
+    switch {
+    case aslash && bslash:
+        return a + b[1:]
+    case !aslash && !bslash:
+        return a + "/" + b
+    }
+    return a + b
+}
+
 func (app *Application) mux() *gorilla_mux.Router {
 	router := gorilla_mux.NewRouter()
 	u, err := url.Parse(app.config.GetString("upstream"))
@@ -53,7 +66,22 @@ func (app *Application) mux() *gorilla_mux.Router {
 
 	}
 	if err == nil {
-		env.Proxy = httputil.NewSingleHostReverseProxy(u)
+		// env.Proxy = httputil.NewSingleHostReverseProxy(u)
+		targetQuery := u.RawQuery
+		env.Proxy = &httputil.ReverseProxy{
+			 Director: func(req *http.Request) {
+			 	req.Host = u.Host
+            	req.URL.Scheme = u.Scheme
+            	req.URL.Host = u.Host
+            	req.URL.Path = singleJoiningSlash(u.Path, req.URL.Path)
+            	if targetQuery == "" || req.URL.RawQuery == "" {
+            		req.URL.RawQuery = targetQuery + req.URL.RawQuery
+
+				} else {
+                	req.URL.RawQuery = targetQuery + "&" + req.URL.RawQuery
+            	}
+			 },
+		}
 	}
 
 	store, err := memstore.New(65536)

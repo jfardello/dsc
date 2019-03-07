@@ -11,6 +11,7 @@ import (
 	"github.com/pkg/errors"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -96,22 +97,23 @@ func CreateMAC(u *uuid.UUID, key []byte) string {
 
 type DSCV struct {
 	Dscv string `json:"dscv"`
+	Hmac string `json:"hmac"`
 
 }
 
 func Dsservice(env *Env, w http.ResponseWriter, r *http.Request) error {
-	env.Log.Debug("foo")
 	u1, _ := uuid.NewUUID()
+	encoded := CreateMAC(&u1, []byte(env.DSCKey))
 	cookie := http.Cookie{
-		Value: CreateMAC(&u1, []byte(env.DSCKey)),
+		Value: encoded,
 		Path: "/",
-		Name: "dscv",
+		Name: "hmac",
 		Secure: true,
 		MaxAge: int(env.MaxTime),
 		Domain: r.Host,
 	}
 	http.SetCookie(w, &cookie)
-	jsOut := DSCV{Dscv: u1.String()}
+	jsOut := DSCV{Dscv: u1.String(), Hmac: url.QueryEscape(encoded)}
 	w.Header().Set("Content-Type", "application/json")
     err := json.NewEncoder(w).Encode(jsOut)
     if err != nil {
@@ -122,12 +124,21 @@ func Dsservice(env *Env, w http.ResponseWriter, r *http.Request) error {
 }
 
 func Judge(env *Env, w http.ResponseWriter, r *http.Request) error {
-	c, err := r.Cookie("dscv")
-	if err != nil {
-		env.Log.WithFields(logrus.Fields{"granted": "false"}).Warn(err)
-		return StatusError{500, err}
-	}
 
+	var dscv string
+	c, err := r.Cookie("hmac")
+	if err != nil{
+		raw := r.URL.Query().Get("hmac")
+		h, err := url.QueryUnescape(raw)
+		if err != nil || raw =="" {
+			env.Log.WithFields(logrus.Fields{"granted": "false"}).Warn("No hmac query string.")
+			return StatusError{500, errors.New("Bad dscv; no named cookie, nor hmac" +
+				" query string.")}
+		}
+		dscv = h
+	} else {
+		dscv = c.Value
+	}
 	param := r.URL.Query().Get("dscv")
 	u1, err := uuid.Parse(param)
 	if err != nil  {
@@ -147,21 +158,21 @@ func Judge(env *Env, w http.ResponseWriter, r *http.Request) error {
 	now := time.Now()
 	secs := now.Unix()
 
-	if (secs - uuidSecs) / 60  >  env.MaxTime {
+	if (secs - uuidSecs)  >  env.MaxTime {
 		env.Log.WithFields(logrus.Fields{"granted": "false"}).Warn("Old uud.")
 		return ErrorForbidden
 	}
-	decodedCookie, err := base64.StdEncoding.DecodeString(c.Value)
+	decodedCookie, err := base64.StdEncoding.DecodeString(dscv)
 	if err != nil {
 		env.Log.WithFields(logrus.Fields{"granted": "false"}).Error(err)
 		return ErrorForbidden
 	}
 
 	if CheckMAC([]byte(param), decodedCookie, []byte(env.DSCKey)) {
-		env.Log.WithFields(logrus.Fields{"granted": "true"}).Info("Cookie hmac matches dscv query string.")
+		env.Log.WithFields(logrus.Fields{"granted": "true", "address": r.RemoteAddr}).Info("Cookie hmac matches dscv query string.")
 		w.Header().Set("Content-Type", "text/plain")
 		w.Header().Set("X-DSC-Status", "valid")
-		w.Header().Set("X-DSC-TTL", fmt.Sprintf("%d", env.MaxTime - ((secs - uuidSecs)/60)))
+		w.Header().Set("X-DSC-TTL", fmt.Sprintf("%d", env.MaxTime - (secs - uuidSecs)))
 		return nil
 	} else {
 		env.Log.WithFields(logrus.Fields{"granted": "false"}).Warn("Invalid hmac value.")

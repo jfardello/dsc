@@ -25,13 +25,15 @@ func newConfig() (*viper.Viper, error) {
 	c.SetDefault("http_drain_interval", "1s")
 	c.SetDefault("force_no_tls", false)
 	c.SetDefault("cors_origins_allowed", "localhost.host.tld,localhost,www.foo.com")
-	c.SetDefault("cors_headers_allowed", "X-Requested-With")
+	c.SetDefault("cors_headers_allowed", "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,X-DSC-Value")
 	c.SetDefault("cors_auth_allowed", true)
 	c.SetDefault("cors_cache_ttl", 3600)
 	c.SetDefault("throttle", "20,5")
 	c.SetDefault("throttle_period", "H")
 	c.SetDefault("throttle_redis_url", nil)
 	c.SetDefault("custom_header", nil)
+	c.SetDefault("proto", "BOTH")
+
 
 
 
@@ -71,8 +73,8 @@ func main() {
 		logrus.Fatal(err)
 	}
 
-	headersOk := gorilla_handlers.AllowedHeaders([]string{"X-Requested-With", "Authorization"})
-	originsOk := gorilla_handlers.AllowedOrigins(strings.Split(config.GetString("origins_allowed"), ","))
+	headersOk := gorilla_handlers.AllowedHeaders(strings.Split(config.GetString("cors_headers_allowed"), ","))
+	originsOk := gorilla_handlers.AllowedOrigins(strings.Split(config.GetString("cors_origins_allowed"), ","))
 	methodsOk := gorilla_handlers.AllowedMethods([]string{"GET", "HEAD", "POST", "PUT", "OPTIONS"})
 	credentials := gorilla_handlers.AllowCredentials()
 
