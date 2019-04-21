@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>title</title>
+    <link rel="stylesheet" href="https://unpkg.com/purecss@1.0.0/build/pure-min.css" integrity="sha384-nn4HPE8lTHyVtfCBi5yW9d20FjT8BJwUXyWZT9InLYax14RDjBj46LmSztkmNP9w" crossorigin="anonymous">
+
+
+      <script src="https://code.jquery.com/jquery-3.3.1.min.js" integrity="sha256-FgpCb/KJQlLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8=" crossorigin="anonymous"></script>
+    <script type="text/javascript">
+
+let jsondata = {"id": "bar", "prio": 1, "resource":"foo"};
+
+function send(){
+    $.ajax({
+        type: "GET",
+        url: "https://dsc.127.0.0.1.nip.io:8443/_dsc/dscservice",
+        contentType: "application/json",
+        async: true,
+        xhrFields: { withCredentials: true },
+        dataType: "json",
+        crossDomain: true}) 
+        .done(function(dsc, tesxtStatus, xhr){
+            $("pre#dscserviceheaders").text(xhr.getAllResponseHeaders());
+            $.ajax({
+                type: "POST",
+                url: "https://dsc.127.0.0.1.nip.io:8443/anything/foo?dscv=" + dsc.dscv,
+                data: JSON.stringify(jsondata),
+                dataType: "json",
+                contentType: "application/json",
+                async: true,
+                statusCode: {
+                   429: function() {
+                     $("pre#result").text("Throttled!");
+                   }
+                },
+                xhrFields: { withCredentials: true}
+                }).done(function(data, textStatus, xhr){
+                    window.xhr=xhr;
+                    $("pre#proxyheaders").text(xhr.getAllResponseHeaders());
+                    $("pre#result").text(JSON.stringify(data, null, 2))
+                });
+        });
+}
+</script>
+  </head>
+  <body>
+      <button onclick="send()"> send! </button>
+      <h3>Result from posting data to dsc proxy.</h3>
+      <pre id="result"></pre>
+      <hr/>
+      <h3>DSCservice call throttling info</h3>
+      <pre id="dscserviceheaders"></pre>
+      <hr/>
+      <h3>Proxy call throttling info</h3>
+      <pre id="proxyheaders"></pre>
+  </body>
+</html>

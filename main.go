@@ -23,16 +23,16 @@ func newConfig() (*viper.Viper, error) {
 	c.SetDefault("http_cert_file", "")
 	c.SetDefault("http_key_file", "")
 	c.SetDefault("http_drain_interval", "1s")
-	c.SetDefault("force_no_tls", false)
 	c.SetDefault("cors_origins_allowed", "localhost.host.tld,localhost,www.foo.com")
-	c.SetDefault("cors_headers_allowed", "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,X-DSC-Value")
+	c.SetDefault("cors_headers_allowed", "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range")
+	c.SetDefault("cors_expose_headers", "Content-Type,X-DSC-Value,X-Ratelimit-Limit,X-Ratelimit-Reset,X-Ratelimit-Remaining")
 	c.SetDefault("cors_auth_allowed", true)
 	c.SetDefault("cors_cache_ttl", 3600)
 	c.SetDefault("throttle", "20,5")
 	c.SetDefault("throttle_period", "H")
 	c.SetDefault("throttle_redis_url", nil)
 	c.SetDefault("custom_header", nil)
-	c.SetDefault("proto", "BOTH")
+	c.SetDefault("proto", "dsc")
 
 
 
@@ -42,6 +42,17 @@ func newConfig() (*viper.Viper, error) {
 	return c, nil
 }
 
+func originValidator(origin string) bool{
+	config, _ := newConfig()
+	for  _, b := range strings.Split(config.GetString("cors_origins_allowed"), ",") {
+		if b == origin {
+			return true
+		}
+	}
+	return false
+}
+
+
 func main() {
 	config, err := newConfig()
 	if len(config.GetString("SECRET")) < 16  {
@@ -49,6 +60,11 @@ func main() {
 	}
 	if err != nil {
 		logrus.Fatal(err)
+	}
+	for _, key := range config.AllKeys(){
+		if key != "secret" {
+			logrus.Printf("dsc_%s=%s", key, config.GetString(key))
+		}
 	}
 
 	app, err := application.New(config)
@@ -60,7 +76,6 @@ func main() {
 	if err != nil {
 		logrus.Fatal(err)
 	}
-
 
 	serverAddress := config.Get("http_addr").(string)
 
@@ -74,14 +89,18 @@ func main() {
 	}
 
 	headersOk := gorilla_handlers.AllowedHeaders(strings.Split(config.GetString("cors_headers_allowed"), ","))
-	originsOk := gorilla_handlers.AllowedOrigins(strings.Split(config.GetString("cors_origins_allowed"), ","))
+	originsOk := gorilla_handlers.AllowedOrigins([]string{})
+	validator := gorilla_handlers.AllowedOriginValidator(originValidator)
+	//originsOk := gorilla_handlers.AllowedOrigins(strings.Split(config.GetString("cors_origins_allowed"), ","))
 	methodsOk := gorilla_handlers.AllowedMethods([]string{"GET", "HEAD", "POST", "PUT", "OPTIONS"})
 	credentials := gorilla_handlers.AllowCredentials()
+	expose := gorilla_handlers.ExposedHeaders(strings.Split(config.GetString("cors_expose_headers"), ","))
 
 	srv := &graceful.Server{
 		Timeout: drainInterval,
 		Server:  &http.Server{Addr: serverAddress,
-							  Handler: gorilla_handlers.CORS(headersOk, originsOk, credentials, methodsOk,)(middle)},
+							  Handler: gorilla_handlers.CORS(headersOk, originsOk, validator, credentials, methodsOk,
+							  	expose)(middle)},
 	}
 
 	logrus.Infoln("Running HTTP server on " + serverAddress)
@@ -90,11 +109,7 @@ func main() {
 		fmt.Println("Serving with TLS enabled")
 		err = srv.ListenAndServeTLS(certFile, keyFile)
 	} else {
-		if config.GetBool("force_no_tls") == false{
-			fmt.Println("Serving without TLS, X-Forwarded-Proto header required.")
-		} else {
-			fmt.Println("Serving without TLS, X-Forwarded-Proto header disabled for debugging purposes.")
-		}
+		fmt.Println("Warning! Serving clear text http!")
 		err = srv.ListenAndServe()
 	}
 

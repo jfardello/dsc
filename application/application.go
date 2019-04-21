@@ -3,18 +3,40 @@ package application
 import (
 	"github.com/Sirupsen/logrus"
 	"github.com/carbocation/interpose"
+	"github.com/gomodule/redigo/redis"
 	gorilla_mux "github.com/gorilla/mux"
 	"github.com/jfardello/dsc-go/handlers"
 	"github.com/spf13/viper"
 	"github.com/throttled/throttled"
 	"github.com/throttled/throttled/store/memstore"
+	"github.com/throttled/throttled/store/redigostore"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
+
+
+type responseHeadersTransport struct {
+	headers []string
+}
+
+func (t responseHeadersTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+    resp, err := http.DefaultTransport.RoundTrip(r)
+    if err != nil {
+        return nil, err
+    }
+	for _ , each :=range t.headers{
+		resp.Header.Del(each)
+	}
+
+    return resp, nil
+}
+
 
 // New is the constructor for Application struct.
 func New(config *viper.Viper) (*Application, error) {
@@ -34,6 +56,10 @@ func (app *Application) MiddlewareStruct() (*interpose.Middleware, error) {
 	return middle, nil
 }
 
+func getHmacParam(r *http.Request) string {
+	raw, _ := url.PathUnescape(r.URL.Query().Get("hmac"))
+	return raw
+}
 
 func singleJoiningSlash(a, b string) string {
     aslash := strings.HasSuffix(a, "/")
@@ -47,28 +73,11 @@ func singleJoiningSlash(a, b string) string {
     return a + b
 }
 
-func (app *Application) mux() *gorilla_mux.Router {
-	router := gorilla_mux.NewRouter()
-	u, err := url.Parse(app.config.GetString("upstream"))
+func NewProxy(u *url.URL) *httputil.ReverseProxy{
+	targetQuery := u.RawQuery
+	RemoveHeaders := responseHeadersTransport{headers:[]string{"Access-Control-Allow-Origin", "Access-Control-Allow-Credentials"}}
 
-	env := handlers.Env{
-		MaxTime: app.config.GetInt64("max_time"),
-		DSCKey:  app.config.GetString("secret"),
-		CustomHeader: app.config.GetString("custom_header"),
-		Log: &logrus.Logger{
-			Out: os.Stderr,
-			Level: logrus.InfoLevel,
-			Formatter: &logrus.TextFormatter{
-				FullTimestamp :true,
-			},
-		},
-
-
-	}
-	if err == nil {
-		// env.Proxy = httputil.NewSingleHostReverseProxy(u)
-		targetQuery := u.RawQuery
-		env.Proxy = &httputil.ReverseProxy{
+	return &httputil.ReverseProxy{
 			 Director: func(req *http.Request) {
 			 	req.Host = u.Host
             	req.URL.Scheme = u.Scheme
@@ -81,18 +90,73 @@ func (app *Application) mux() *gorilla_mux.Router {
                 	req.URL.RawQuery = targetQuery + "&" + req.URL.RawQuery
             	}
 			 },
+			 Transport: RemoveHeaders,
+	}
+}
+
+func newPool(addr string) *redis.Pool {
+	return &redis.Pool{
+		MaxIdle: 3,
+		IdleTimeout: 240 * time.Second,
+	    Dial: func () (redis.Conn, error) { return redis.Dial("tcp", addr)},
+	}
+}
+
+
+func (app *Application) mux() *gorilla_mux.Router {
+
+	router := gorilla_mux.NewRouter()
+	u, err := url.Parse(app.config.GetString("upstream"))
+
+	env := handlers.Env{
+		MaxTime: app.config.GetInt64("max_time"),
+		DSCKey:  app.config.GetString("secret"),
+		CustomHeader: app.config.GetString("custom_header"),
+		Proto: app.config.GetString("proto"),
+		Log: &logrus.Logger{
+			Out: os.Stderr,
+			Level: logrus.InfoLevel,
+			Formatter: &logrus.TextFormatter{
+				FullTimestamp :true,
+			},
+		},
+	}
+	if err == nil {
+		env.Proxy = NewProxy(u)
+	}
+
+	redisUrl := app.config.GetString("throttle_redis_url")
+
+	var store throttled.GCRAStore
+	if redisUrl == "" {
+
+		store, err = memstore.New(65536)
+		if err != nil {
+			logrus.Fatal(err)
+		}
+	} else {
+		pool := newPool(redisUrl)
+		store, err = redigostore.New(pool, "", 0)
+		if err != nil {
+			panic(err)
 		}
 	}
 
-	store, err := memstore.New(65536)
-	if err != nil {
-		logrus.Fatal(err)
-	}
-
 	var quota throttled.RateQuota
-	s := strings.Split(app.config.GetString("throttle"), ",")
-	max , _:= strconv.Atoi(s[0])
-	burst, _ := strconv.Atoi(s[1])
+	var re = regexp.MustCompile(`(?P<max>[0-9]+),(?P<burst>[0-9]+)`)
+
+
+	if ! re.MatchString(app.config.GetString("throttle")){
+		panic("Bad  DSC_THROTTLE config.")
+
+	}
+	s := re.FindStringSubmatch(app.config.GetString("throttle"))
+
+	max , _ := strconv.Atoi(s[1])
+	burst, _ := strconv.Atoi(s[2])
+	if max < 1 {
+		panic("Invalid config for DSC_THROTTLE: max requests per period can't be zero.")
+	}
 
 	switch app.config.GetString("throttle_period") {
 
@@ -110,18 +174,31 @@ func (app *Application) mux() *gorilla_mux.Router {
 	if err != nil {
 		logrus.Fatal(err)
 	}
-
-	rl := throttled.HTTPRateLimiter{
-		RateLimiter: rateLimiter,
-		VaryBy:      &throttled.VaryBy{Path: true, RemoteAddr: true, Headers: []string{"X-Forwarded-For", "X-Real-IP"}},
+	proxyLimiter, err := throttled.NewGCRARateLimiter(store, quota)
+	if err != nil {
+		logrus.Fatal(err)
 	}
 
+	//Rate limiter for dscservice & judge endpoints
+	rl := throttled.HTTPRateLimiter{ RateLimiter: rateLimiter, }
+
+	//Rate limiter for the proxy
+	pl := throttled.HTTPRateLimiter{ RateLimiter: proxyLimiter, }
+
+	if env.Proto == "both" {
+		rl.VaryBy = &throttled.VaryBy{ Path: true, RemoteAddr: true, Headers: []string{"X-Forwarded-For", "X-Real-IP"}}
+		pl.VaryBy = &throttled.VaryBy{ Path: false, RemoteAddr: false, Custom: getHmacParam}
+	} else {
+		vb := &throttled.VaryBy{Path: true, RemoteAddr: true, Headers: []string{"X-Forwarded-For", "X-Real-IP"}}
+		rl.VaryBy = vb
+		pl.VaryBy = vb
+	}
 
 	router.Handle("/_dsc/judge/{orig:.+}", rl.RateLimit(handlers.Handler{Env: &env, H: handlers.JudgeW}))
 	router.Handle("/_dsc/dscservice", rl.RateLimit(handlers.Handler{Env: &env, H: handlers.Dsservice}))
-
+	router.Handle("/_dsc/status", handlers.Handler{Env: &env, H: handlers.Status})
     if env.Proxy != nil {
-		router.PathPrefix("/").Handler(rl.RateLimit(handlers.Handler{Env: &env, H: handlers.ProxyHandler}))
+		router.PathPrefix("/").Handler(pl.RateLimit(handlers.Handler{Env: &env, H: handlers.ProxyHandler}))
 	}
 
 

@@ -54,6 +54,7 @@ type Env struct {
 	Proxy *httputil.ReverseProxy
 	Log *logrus.Logger
 	CustomHeader string
+	Proto string
 }
 
 type Handler struct {
@@ -84,14 +85,20 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func CheckMAC(message, messageMAC, key []byte) bool {
 	mac := hmac.New(sha256.New, key)
-	mac.Write(message)
+	_, err := mac.Write(message)
+	if err != nil{
+		panic(err)
+	}
 	expectedMAC := mac.Sum(nil)
 	return hmac.Equal(messageMAC, expectedMAC)
 }
 
 func CreateMAC(u *uuid.UUID, key []byte) string {
 	mac := hmac.New(sha256.New, key)
-	mac.Write([]byte(u.String()))
+	_, err := mac.Write([]byte(u.String()))
+	if err != nil{
+		panic(err)
+	}
 	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
 }
 
@@ -126,10 +133,16 @@ func Dsservice(env *Env, w http.ResponseWriter, r *http.Request) error {
 func Judge(env *Env, w http.ResponseWriter, r *http.Request) error {
 
 	var dscv string
+
 	c, err := r.Cookie("hmac")
-	if err != nil{
+	if err != nil {
+		if env.Proto != "both" {
+			env.Log.WithFields(logrus.Fields{"granted": "false"}).Warn("No hmac cookie found.")
+			return StatusError{500, errors.New("Bad dscv; no cookie present in request.")}
+
+		}
 		raw := r.URL.Query().Get("hmac")
-		h, err := url.QueryUnescape(raw)
+		h, err := url.PathUnescape(raw)
 		if err != nil || raw =="" {
 			env.Log.WithFields(logrus.Fields{"granted": "false"}).Warn("No hmac query string.")
 			return StatusError{500, errors.New("Bad dscv; no named cookie, nor hmac" +
@@ -164,9 +177,10 @@ func Judge(env *Env, w http.ResponseWriter, r *http.Request) error {
 	}
 	decodedCookie, err := base64.StdEncoding.DecodeString(dscv)
 	if err != nil {
-		env.Log.WithFields(logrus.Fields{"granted": "false"}).Error(err)
+		env.Log.WithFields(logrus.Fields{"granted": "false", "dscv": dscv, "uuid": u1.String()}).Error(err)
 		return ErrorForbidden
 	}
+
 
 	if CheckMAC([]byte(param), decodedCookie, []byte(env.DSCKey)) {
 		env.Log.WithFields(logrus.Fields{"granted": "true", "address": r.RemoteAddr}).Info("Cookie hmac matches dscv query string.")
@@ -180,10 +194,21 @@ func Judge(env *Env, w http.ResponseWriter, r *http.Request) error {
 	}
 }
 
+func Status(env *Env, w http.ResponseWriter, r *http.Request) error {
+	_, err := w.Write([]byte("OK\n"))
+	if err != nil {
+		return err
+	}else {
+		return nil
+	}
+}
+
+
 func JudgeW(env *Env, w http.ResponseWriter, r *http.Request) error {
 	shouldRoute := Judge(env, w, r)
 	if shouldRoute == nil {
-		w.Write([]byte(""))
+		n,_ := w.Write([]byte(""))
+		env.Log.Debugf("JudgeW wrote %n bytes", n)
 	}
 	return shouldRoute
 
@@ -203,3 +228,4 @@ func ProxyHandler(env *Env, w http.ResponseWriter, r *http.Request) error {
 		return nil
 	}
 }
+
