@@ -45,9 +45,9 @@ func newConfig() (*viper.Viper, error) {
 
 func originValidator(origin string) bool {
 	config, err := newConfig()
-    if err != nil {
-        logrus.Fatal(err)
-    }
+	if err != nil {
+		logrus.Fatal(err)
+	}
 	for _, b := range strings.Split(config.GetString("cors_origins_allowed"), ",") {
 		if b == origin {
 			return true

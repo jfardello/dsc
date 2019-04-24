@@ -109,7 +109,7 @@ type dscv struct {
 //of the hmac'ed value in its URL-encoded form.
 func Dsservice(env *Env, w http.ResponseWriter, r *http.Request) error {
 	u1, err := uuid.NewUUID()
-	if err != nil{
+	if err != nil {
 		logrus.Fatal(err)
 	}
 	encoded := CreateMAC(&u1, []byte(env.DSCKey))
@@ -158,7 +158,6 @@ func Judge(env *Env, w http.ResponseWriter, r *http.Request) error {
 
 	return checkDSCV(env, dscv, w, r)
 }
-
 
 func checkDSCV(env *Env, dscv string, w http.ResponseWriter, r *http.Request) error {
 	param := r.URL.Query().Get("dscv")
