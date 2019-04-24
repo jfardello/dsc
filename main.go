@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"github.com/Sirupsen/logrus"
 	gorilla_handlers "github.com/gorilla/handlers"
@@ -34,17 +35,20 @@ func newConfig() (*viper.Viper, error) {
 	c.SetDefault("custom_header", nil)
 	c.SetDefault("proto", "dsc")
 
-
-
-
 	c.AutomaticEnv()
 
-	return c, nil
+	if len(c.GetString("SECRET")) < 16 {
+		logrus.Fatal("SECRET is mandatory and should be at least 16 characters long.")
+	}
+	return c, errors.New("must be at leas 16 characters long")
 }
 
-func originValidator(origin string) bool{
-	config, _ := newConfig()
-	for  _, b := range strings.Split(config.GetString("cors_origins_allowed"), ",") {
+func originValidator(origin string) bool {
+	config, err := newConfig()
+    if err != nil {
+        logrus.Fatal(err)
+    }
+	for _, b := range strings.Split(config.GetString("cors_origins_allowed"), ",") {
 		if b == origin {
 			return true
 		}
@@ -52,16 +56,12 @@ func originValidator(origin string) bool{
 	return false
 }
 
-
 func main() {
 	config, err := newConfig()
-	if len(config.GetString("SECRET")) < 16  {
-		logrus.Fatal("SECRET is mandatory and should be at least 16 characters long.")
-	}
 	if err != nil {
 		logrus.Fatal(err)
 	}
-	for _, key := range config.AllKeys(){
+	for _, key := range config.AllKeys() {
 		if key != "secret" {
 			logrus.Printf("dsc_%s=%s", key, config.GetString(key))
 		}
@@ -98,9 +98,9 @@ func main() {
 
 	srv := &graceful.Server{
 		Timeout: drainInterval,
-		Server:  &http.Server{Addr: serverAddress,
-							  Handler: gorilla_handlers.CORS(headersOk, originsOk, validator, credentials, methodsOk,
-							  	expose)(middle)},
+		Server: &http.Server{Addr: serverAddress,
+			Handler: gorilla_handlers.CORS(headersOk, originsOk, validator, credentials, methodsOk,
+				expose)(middle)},
 	}
 
 	logrus.Infoln("Running HTTP server on " + serverAddress)

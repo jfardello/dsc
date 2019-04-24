@@ -20,6 +20,15 @@
   version = "v1.4.7"
 
 [[projects]]
+  name = "github.com/gomodule/redigo"
+  packages = [
+    "internal",
+    "redis"
+  ]
+  revision = "9c11da706d9b7902c6da69c592f75637793fe121"
+  version = "v2.0.0"
+
+[[projects]]
   name = "github.com/google/uuid"
   packages = ["."]
   revision = "0cd6bf5da1e1c83f8b45653022c74f71af0538a4"
@@ -94,12 +103,6 @@
   version = "v0.8.1"
 
 [[projects]]
-  name = "github.com/sirupsen/logrus"
-  packages = ["."]
-  revision = "dae0fa8d5b0c810a8ab733fbd5510c7cae84eca4"
-  version = "v1.4.0"
-
-[[projects]]
   name = "github.com/spf13/afero"
   packages = [
     ".",
@@ -136,7 +139,8 @@
   name = "github.com/throttled/throttled"
   packages = [
     ".",
-    "store/memstore"
+    "store/memstore",
+    "store/redigostore"
   ]
   revision = "def5708c45a0d2b2b9a3604521f3164e227d2c83"
   version = "v2.2.4"
@@ -184,6 +188,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "f39c0f3ea02f5db369691a32d240a3b77b4454ecbb687f1132cba1683137eb5e"
+  inputs-digest = "9d4fedbfc2f0a80c8eaad17e07062bbbd2ab3fbb7fc7ffbba005396535c47206"
   solver-name = "gps-cdcl"
   solver-version = 1

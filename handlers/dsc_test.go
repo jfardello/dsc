@@ -17,17 +17,16 @@ type Resp struct {
 	hmac string
 }
 
-
 func singleJoiningSlash(a, b string) string {
-    aslash := strings.HasSuffix(a, "/")
-    bslash := strings.HasPrefix(b, "/")
-    switch {
-    case aslash && bslash:
-        return a + b[1:]
-    case !aslash && !bslash:
-        return a + "/" + b
-    }
-    return a + b
+	aslash := strings.HasSuffix(a, "/")
+	bslash := strings.HasPrefix(b, "/")
+	switch {
+	case aslash && bslash:
+		return a + b[1:]
+	case !aslash && !bslash:
+		return a + "/" + b
+	}
+	return a + b
 }
 
 func TestDSCHandler(t *testing.T) {
@@ -40,7 +39,7 @@ func TestDSCHandler(t *testing.T) {
 
 	// We create a ResponseRecorder (which satisfies http.ResponseWriter) to record the response.
 	rr := httptest.NewRecorder()
-	env := Env{MaxTime:60, DSCKey:"123" }
+	env := Env{MaxTime: 60, DSCKey: "123"}
 	handler := http.Handler(Handler{&env, Dsservice})
 
 	// Our handlers satisfy http.Handler, so we can call their ServeHTTP method
@@ -60,7 +59,7 @@ func TestDSCHandler(t *testing.T) {
 		u1, _ := uuid.Parse(got.dscv)
 		if got.hmac == url.QueryEscape(CreateMAC(&u1, []byte(env.DSCKey))) {
 			t.Log("got a good response.")
-		}else{
+		} else {
 			t.Fatalf("bad hmac! %s", got.hmac)
 		}
 	}
@@ -72,7 +71,7 @@ func TestJudge(t *testing.T) {
 	u1, _ := uuid.NewUUID()
 
 	hmac := url.QueryEscape(CreateMAC(&u1, []byte("123")))
-	req, err := http.NewRequest("GET", "/foo/var?dscv=" + u1.String() + "&hmac=" + hmac, nil)
+	req, err := http.NewRequest("GET", "/foo/var?dscv="+u1.String()+"&hmac="+hmac, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +79,7 @@ func TestJudge(t *testing.T) {
 	// We create a ResponseRecorder (which satisfies http.ResponseWriter) to record the response.
 	rr := httptest.NewRecorder()
 	log := logrus.New()
-	env := Env{MaxTime:60, DSCKey:"123", Log: log, Proto:"both"}
+	env := Env{MaxTime: 60, DSCKey: "123", Log: log, Proto: "both"}
 
 	handler := http.Handler(Handler{&env, JudgeW})
 
@@ -101,20 +100,19 @@ func TestJudge(t *testing.T) {
 		u2, _ := uuid.Parse(got.dscv)
 		if got.hmac == url.QueryEscape(CreateMAC(&u2, []byte(env.DSCKey))) {
 			t.Log("got a good response.")
-		}else{
+		} else {
 			t.Fatalf("bad hmac! %s", got.hmac)
 		}
 	}
 }
-
 
 func TestJudgeCookie(t *testing.T) {
 	// Create a request to pass to our handler. We don't have any query parameters for now, so we'll
 	// pass 'nil' as the third parameter.
 	u1, _ := uuid.NewUUID()
 
-	req, err := http.NewRequest("GET", "/foo/var?dscv=" + u1.String(), nil)
-	c := http.Cookie{Name:"hmac", Path:"/", Value: CreateMAC(&u1, []byte("123"))}
+	req, err := http.NewRequest("GET", "/foo/var?dscv="+u1.String(), nil)
+	c := http.Cookie{Name: "hmac", Path: "/", Value: CreateMAC(&u1, []byte("123"))}
 	req.AddCookie(&c)
 	if err != nil {
 		t.Fatal(err)
@@ -123,7 +121,7 @@ func TestJudgeCookie(t *testing.T) {
 	// We create a ResponseRecorder (which satisfies http.ResponseWriter) to record the response.
 	rr := httptest.NewRecorder()
 	log := logrus.New()
-	env := Env{MaxTime:60, DSCKey:"123", Log: log, Proto:"both"}
+	env := Env{MaxTime: 60, DSCKey: "123", Log: log, Proto: "both"}
 
 	handler := http.Handler(Handler{&env, JudgeW})
 
@@ -144,19 +142,18 @@ func TestJudgeCookie(t *testing.T) {
 		u2, _ := uuid.Parse(got.dscv)
 		if got.hmac == url.QueryEscape(CreateMAC(&u2, []byte(env.DSCKey))) {
 			t.Log("got a good response.")
-		}else{
+		} else {
 			t.Fatalf("bad hmac! %s", got.hmac)
 		}
 	}
 }
-
 
 func TestFail(t *testing.T) {
 	// Create a request to pass to our handler. We don't have any query parameters for now, so we'll
 	// pass 'nil' as the third parameter.
 	u1, _ := uuid.Parse("117e2b18-5461-11e9-bbdc-54e1ade48196")
 	hmac := url.QueryEscape(CreateMAC(&u1, []byte("123")))
-	req, err := http.NewRequest("GET", "/foo/var?dscv=" + u1.String() + "&hmac=" + hmac, nil)
+	req, err := http.NewRequest("GET", "/foo/var?dscv="+u1.String()+"&hmac="+hmac, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +161,7 @@ func TestFail(t *testing.T) {
 	// We create a ResponseRecorder (which satisfies http.ResponseWriter) to record the response.
 	rr := httptest.NewRecorder()
 	log := logrus.New()
-	env := Env{MaxTime:60, DSCKey:"123", Log: log, Proto:"both"}
+	env := Env{MaxTime: 60, DSCKey: "123", Log: log, Proto: "both"}
 
 	handler := http.Handler(Handler{&env, JudgeW})
 
@@ -185,7 +182,7 @@ func TestFailHmac(t *testing.T) {
 	u1, _ := uuid.NewUUID()
 
 	hmac := ""
-	req, err := http.NewRequest("GET", "/foo/var?dscv=" + u1.String() + "&hmac=" + hmac, nil)
+	req, err := http.NewRequest("GET", "/foo/var?dscv="+u1.String()+"&hmac="+hmac, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +190,7 @@ func TestFailHmac(t *testing.T) {
 	// We create a ResponseRecorder (which satisfies http.ResponseWriter) to record the response.
 	rr := httptest.NewRecorder()
 	log := logrus.New()
-	env := Env{MaxTime:60, DSCKey:"123", Log: log}
+	env := Env{MaxTime: 60, DSCKey: "123", Log: log}
 
 	handler := http.Handler(Handler{&env, JudgeW})
 
@@ -208,7 +205,6 @@ func TestFailHmac(t *testing.T) {
 	}
 }
 
-
 func TestStatus(t *testing.T) {
 	req, err := http.NewRequest("GET", "/_dsc/status", nil)
 	if err != nil {
@@ -216,7 +212,7 @@ func TestStatus(t *testing.T) {
 	}
 
 	rr := httptest.NewRecorder()
-	env := Env{MaxTime:60, DSCKey:"123" }
+	env := Env{MaxTime: 60, DSCKey: "123"}
 	handler := http.Handler(Handler{&env, Status})
 	handler.ServeHTTP(rr, req)
 
@@ -226,17 +222,18 @@ func TestStatus(t *testing.T) {
 	}
 
 	// Check the response body is what we expect.
-	if rr.Body.String() == "OK\n"{
+	if rr.Body.String() == "OK\n" {
 		t.Log("got a good response.")
-	}else{
+	} else {
 		t.Fatalf("bad response!")
 	}
 }
 
-func TestProxy(t *testing.T){
+func TestProxy(t *testing.T) {
 	backendResponse := "I am the backend"
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_: w.Write([]byte(backendResponse))
+	_:
+		w.Write([]byte(backendResponse))
 	}))
 	defer backend.Close()
 	backendURL, _ := url.Parse(backend.URL)
@@ -244,14 +241,14 @@ func TestProxy(t *testing.T){
 	u1, _ := uuid.NewUUID()
 	hmac := url.QueryEscape(CreateMAC(&u1, []byte("123")))
 
-	req, err := http.NewRequest("GET", backendURL.String() + "?dscv=" + u1.String() + "&hmac=" + hmac, nil)
+	req, err := http.NewRequest("GET", backendURL.String()+"?dscv="+u1.String()+"&hmac="+hmac, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	rr := httptest.NewRecorder()
 	log := logrus.New()
-	env := Env{MaxTime:60, DSCKey:"123", Log: log, Proto:"both"}
+	env := Env{MaxTime: 60, DSCKey: "123", Log: log, Proto: "both"}
 	env.Proxy = &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
 			req.Host = backendURL.Host
@@ -273,4 +270,3 @@ func TestProxy(t *testing.T){
 	}
 
 }
-
